@@ -1,0 +1,183 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>TinyLink - Dashboard</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-gray-100 min-h-screen">
+  <div class="max-w-4xl mx-auto p-6">
+
+    <h1 class="text-3xl font-bold mb-2">TinyLink — Dashboard</h1>
+    <p class="text-gray-600 mb-6">Create, view, and delete short links</p>
+
+    <!-- Create Form -->
+    <div class="bg-white p-4 rounded shadow mb-6">
+      <form id="createForm" class="flex gap-2 items-start">
+        <input id="targetUrl" 
+               type="url" 
+               placeholder="https://example.com/long-url" 
+               required
+               class="flex-1 p-2 border rounded" />
+
+        <input id="customCode" 
+               type="text" 
+               placeholder="Custom code (optional)"
+               class="w-48 p-2 border rounded" />
+
+        <button class="px-4 py-2 bg-blue-600 text-white rounded" type="submit" id="createBtn">
+          Create
+        </button>
+      </form>
+
+      <p id="formMsg" class="text-sm mt-2 text-gray-600"></p>
+    </div>
+
+    <!-- Search -->
+    <div class="flex justify-between mb-3">
+      <input id="search" placeholder="Search by code or URL" class="p-2 border rounded w-1/2"/>
+      <button id="refreshBtn" class="px-4 py-2 bg-gray-200 rounded">Refresh</button>
+    </div>
+
+    <!-- Table -->
+    <div class="bg-white shadow rounded">
+      <table class="min-w-full">
+        <thead class="bg-gray-100">
+          <tr class="text-left">
+            <th class="px-4 py-2">Code</th>
+            <th class="px-4 py-2">Target URL</th>
+            <th class="px-4 py-2 text-center">Clicks</th>
+            <th class="px-4 py-2 text-center">Last Clicked</th>
+            <th class="px-4 py-2 text-center">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="linksTable" class="divide-y"></tbody>
+      </table>
+    </div>
+
+  </div>
+
+<script>
+  const baseUrl = "<%= baseUrl %>";
+
+  async function fetchLinks(q) {
+    const url = '/api/links' + (q ? '?q=' + encodeURIComponent(q) : '');
+    const r = await fetch(url);
+    const data = await r.json();
+    return data.links || [];
+  }
+
+  function truncate(text, n = 80) {
+    return text.length > n ? text.slice(0, n - 1) + '…' : text;
+  }
+
+  // Render table
+  function renderLinks(links) {
+    const tbody = document.getElementById('linksTable');
+    tbody.innerHTML = '';
+
+    if (!links.length) {
+      tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-gray-500">No links found</td></tr>`;
+      return;
+    }
+
+    links.forEach(link => {
+      tbody.innerHTML += `
+        <tr>
+          <td class="px-4 py-2">
+            <a class="text-blue-600" href="${baseUrl}/${link.code}" target="_blank">${link.code}</a>
+          </td>
+
+          <td class="px-4 py-2">${truncate(link.targetUrl)}</td>
+
+          <td class="px-4 py-2 text-center">${link.clicks}</td>
+          <td class="px-4 py-2 text-center">
+            ${link.lastClicked ? new Date(link.lastClicked).toLocaleString() : '-'}
+          </td>
+
+          <td class="px-4 py-2 text-center flex gap-2 justify-center">
+            <button class="px-2 py-1 border rounded copyBtn" data-url="${baseUrl}/${link.code}">Copy</button>
+            <a class="px-2 py-1 border rounded" href="/code/${link.code}">Stats</a>
+            <button class="px-2 py-1 border rounded deleteBtn" data-code="${link.code}">Delete</button>
+          </td>
+        </tr>
+      `;
+    });
+
+    // COPY button
+    document.querySelectorAll('.copyBtn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        navigator.clipboard.writeText(btn.dataset.url);
+        alert('Copied!');
+      });
+    });
+
+    // DELETE button
+    document.querySelectorAll('.deleteBtn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm("Delete this link?")) return;
+
+        const r = await fetch(`/api/links/${btn.dataset.code}`, {
+          method: 'DELETE'
+        });
+
+        if (r.status === 200) load();
+        else alert("Delete failed");
+      });
+    });
+  }
+
+  // Load links into table
+  async function load(q) {
+    const links = await fetchLinks(q);
+    renderLinks(links);
+  }
+
+  // CREATE new short link
+  document.getElementById('createForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const msg = document.getElementById('formMsg');
+    const btn = document.getElementById('createBtn');
+
+    msg.textContent = "Creating...";
+    btn.disabled = true;
+
+    const targetUrl = document.getElementById('targetUrl').value.trim();
+    const customCode = document.getElementById('customCode').value.trim();
+
+    const res = await fetch('/api/links', {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetUrl, code: customCode || undefined })
+    });
+
+    const data = await res.json();
+
+    if (res.status === 201) {
+      msg.textContent = "Created!";
+      document.getElementById('targetUrl').value = "";
+      document.getElementById('customCode').value = "";
+      load();
+    } else {
+      msg.textContent = data.message || "Error";
+    }
+
+    btn.disabled = false;
+    setTimeout(() => (msg.textContent = ""), 3000);
+  });
+
+  // Search
+  document.getElementById('search').addEventListener('input', e => load(e.target.value));
+
+  // Refresh button
+  document.getElementById('refreshBtn').addEventListener('click', () => load());
+
+  // Initial load
+  load();
+</script>
+
+</body>
+</html>
